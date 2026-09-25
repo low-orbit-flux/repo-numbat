@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Repo Numbat application icon: a stylised numbat (Myrmecobius fasciatus). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4c5945"/>
+      <stop offset="1" stop-color="#2c332a"/>
+    </linearGradient>
+    <linearGradient id="fur" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d8823a"/>
+      <stop offset="1" stop-color="#8e4a1c"/>
+    </linearGradient>
+    <clipPath id="bodyclip">
+      <path d="M80 150 C 70 110, 120 88, 168 96 C 206 102, 222 128, 214 158 C 206 184, 160 196, 118 190 C 92 186, 82 170, 80 150 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- rounded-square backdrop matching the olive theme -->
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)" stroke="#1c211a" stroke-width="4"/>
+
+  <!-- ground shadow -->
+  <ellipse cx="140" cy="200" rx="86" ry="10" fill="#000" opacity="0.28"/>
+
+  <!-- bushy tail -->
+  <path d="M206 150 C 232 128, 246 96, 224 70 C 216 60, 204 62, 202 74 C 200 88, 214 96, 212 116 C 210 130, 200 138, 196 148 Z"
+        fill="#5a2f14"/>
+  <path d="M204 146 C 224 128, 236 102, 222 80 C 218 74, 212 76, 212 84 C 212 96, 220 104, 216 120 C 213 132, 204 138, 200 146 Z"
+        fill="#c47239"/>
+  <path d="M208 120 C 214 108, 222 100, 226 92" stroke="#f0d9b5" stroke-width="4" stroke-linecap="round" fill="none"/>
+  <path d="M202 138 C 210 128, 216 122, 220 114" stroke="#f0d9b5" stroke-width="4" stroke-linecap="round" fill="none"/>
+
+  <!-- body -->
+  <path d="M80 150 C 70 110, 120 88, 168 96 C 206 102, 222 128, 214 158 C 206 184, 160 196, 118 190 C 92 186, 82 170, 80 150 Z"
+        fill="url(#fur)" stroke="#4a2410" stroke-width="3"/>
+
+  <!-- the numbat's signature white stripes on the rump, clipped to the body -->
+  <g clip-path="url(#bodyclip)" fill="none" stroke="#f6ead4" stroke-width="7" stroke-linecap="round">
+    <path d="M132 92 C 136 118, 132 150, 124 196"/>
+    <path d="M152 92 C 158 118, 156 150, 148 196"/>
+    <path d="M172 96 C 180 120, 180 152, 172 196"/>
+    <path d="M192 104 C 202 124, 204 156, 196 196"/>
+  </g>
+  <!-- darker band along the rump under stripes -->
+  <path d="M120 96 C 150 90, 200 100, 214 140" fill="none" stroke="#5a2f14" stroke-width="6" opacity="0.45"/>
+
+  <!-- hind leg -->
+  <path d="M176 172 C 172 188, 176 200, 186 206 L 200 206 C 202 202, 196 198, 192 196 C 188 190, 190 182, 196 172 Z" fill="#8e4a1c" stroke="#4a2410" stroke-width="2.5"/>
+  <!-- front leg -->
+  <path d="M104 176 C 100 188, 100 200, 108 206 L 122 206 C 124 202, 118 198, 114 196 C 110 188, 114 182, 120 176 Z" fill="#b8652c" stroke="#4a2410" stroke-width="2.5"/>
+
+  <!-- head: long pointed snout facing left -->
+  <path d="M96 118 C 84 104, 66 104, 48 116 L 24 134 C 20 138, 24 142, 30 141 L 54 136 C 68 140, 84 142, 96 138 Z"
+        fill="#c9732f" stroke="#4a2410" stroke-width="3" stroke-linejoin="round"/>
+  <!-- ear -->
+  <path d="M86 118 C 84 104, 90 96, 98 94 C 104 100, 104 112, 98 120 Z" fill="#c9732f" stroke="#4a2410" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M90 116 C 90 108, 93 102, 97 100 C 99 105, 99 112, 96 117 Z" fill="#e9a97a"/>
+  <!-- dark eye stripe -->
+  <path d="M96 128 C 80 122, 60 124, 44 130" stroke="#3a1c0c" stroke-width="7" stroke-linecap="round" fill="none"/>
+  <!-- white stripes above and below the eye stripe -->
+  <path d="M94 121 C 78 116, 62 118, 48 124" stroke="#f6ead4" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <path d="M92 135 C 78 131, 62 132, 46 136" stroke="#f6ead4" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <!-- eye -->
+  <circle cx="72" cy="127" r="4.2" fill="#f6ead4"/>
+  <circle cx="72" cy="127" r="2.6" fill="#120a05"/>
+  <!-- nose -->
+  <circle cx="27" cy="138" r="3.6" fill="#2a140a"/>
+  <!-- tongue: numbats eat termites with a very long tongue -->
+  <path d="M27 141 C 20 146, 12 146, 6 142" stroke="#e05a6a" stroke-width="3" stroke-linecap="round" fill="none"/>
+</svg>
