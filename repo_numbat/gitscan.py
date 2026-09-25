@@ -40,7 +40,10 @@ class RepoStatus:
     stashes: int = 0
 
     last_commit: str = ""  # relative date of HEAD
-    size_bytes: int = 0    # disk usage of the directory (including .git)
+    size_bytes: int = 0    # disk usage of the whole directory
+    repo_bytes: int = 0    # disk usage of what git manages: tracked files + .git
+    git_bytes: int = 0     # disk usage of the .git directory alone
+    visibility: str = ""   # 'public' | 'private' | 'unknown' (GitHub remotes, filled in later) | '' not asked
     fetched: bool = False
     ownership: Ownership = field(default_factory=Ownership)
 
@@ -115,14 +118,37 @@ def dir_size(path: Path) -> int:
                         if entry.is_dir(follow_symlinks=False):
                             stack.append(Path(entry.path))
                         else:
-                            st = entry.stat(follow_symlinks=False)
-                            blocks = getattr(st, "st_blocks", None)
-                            total += blocks * 512 if blocks is not None else st.st_size
+                            total += _file_usage(entry.stat(follow_symlinks=False))
                     except OSError:
                         continue
         except OSError:
             continue
     return total
+
+
+def _file_usage(st: os.stat_result) -> int:
+    blocks = getattr(st, "st_blocks", None)
+    return blocks * 512 if blocks is not None else st.st_size
+
+
+def _repo_size(path: Path) -> tuple[int, int]:
+    """(.git usage, tracked working-tree files usage). Untracked and ignored files are excluded."""
+    git_dir = _out(path, "rev-parse", "--git-dir") or ".git"
+    git_path = Path(git_dir) if Path(git_dir).is_absolute() else path / git_dir
+    git_bytes = dir_size(git_path) if git_path.is_dir() else 0
+    tracked = 0
+    try:
+        proc = _git(path, "ls-files", "-z")
+    except (OSError, subprocess.TimeoutExpired):
+        return git_bytes, 0
+    for name in proc.stdout.split("\0"):
+        if not name:
+            continue
+        try:
+            tracked += _file_usage(os.lstat(path / name))
+        except OSError:
+            continue
+    return git_bytes, tracked
 
 
 def human_size(n: int) -> str:
@@ -183,6 +209,8 @@ def scan_repo(path: Path, fetch: bool = False) -> RepoStatus:
             status.fetched = _fetch(status)
         _fill_porcelain(status)
         status.stashes = len(_out(path, "stash", "list").splitlines())
+        status.git_bytes, tracked = _repo_size(path)
+        status.repo_bytes = status.git_bytes + tracked
         status.last_commit = _out(path, "log", "-1", "--format=%cr")
     except subprocess.TimeoutExpired:
         status.error = "git timed out"

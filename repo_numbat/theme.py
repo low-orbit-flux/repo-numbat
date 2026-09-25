@@ -94,6 +94,11 @@ QPushButton:default {{ border-color: {C['ok']}; }}
 QCheckBox, QLabel {{ color: {C['text']}; background: transparent; }}
 QCheckBox::indicator {{ width: 14px; height: 14px; border: 1px solid {C['border']}; background: {C['panel']}; }}
 QCheckBox::indicator:checked {{ background: {C['ok']}; }}
+QRadioButton {{ color: {C['text']}; background: transparent; spacing: 6px; }}
+QRadioButton::indicator {{ width: 14px; height: 14px; border-radius: 8px; border: 1px solid {C['border']}; background: {C['panel']}; }}
+QRadioButton::indicator:checked {{ background: {C['ok']}; border: 3px solid {C['panel']}; }}
+QGroupBox {{ border: 1px solid {C['border']}; border-radius: 3px; margin-top: 10px; padding: 8px 6px 4px 6px; }}
+QGroupBox::title {{ subcontrol-origin: margin; left: 8px; padding: 0 4px; color: {C['muted']}; }}
 QDialog {{ background: {C['window']}; }}
 QToolTip {{ background: {C['panel']}; color: {C['text']}; border: 1px solid {C['border']}; padding: 4px; }}
 QMessageBox {{ background: {C['window']}; }}

@@ -21,9 +21,11 @@ olive theme. Runs on Linux, macOS and Windows.
 | To push | local commits the remote does not have (`no upstream` if the branch was never pushed) |
 | To pull | remote commits not merged locally. Press **Fetch** to make this current |
 | Remote | `connected` (hover for the URL) or `not connected` |
+| Visibility | `public` or `private` as reported by GitHub after each scan, `unknown` for non-GitHub remotes or repos the current auth cannot see, `local` when there is no remote. Turn the lookup off in Settings > GitHub |
 | Remote owner | the user or group/organisation segment of the remote URL, e.g. `acme @ github.com` |
 | Owner | who owns the directory on this machine: `you (name)`, `your group (name)`, or `user:group` for someone else |
-| Size | disk space used by the folder including `.git` (allocated blocks on Linux/macOS, file sizes on Windows) |
+| Dir size | disk space used by the whole folder, untracked and ignored files included |
+| Repo size | disk space used by what git manages: tracked files plus `.git`. A build or data folder that is untracked or ignored does not count. Hover for the breakdown |
 | Stashes, Last commit, Remote URL, Path | extra context |
 
 The bottom pane has a **Log** tab (what the tool is doing) and a **Details**
@@ -32,6 +34,14 @@ tab with `git status`, recent log and remotes for the selected repo.
 Toolbar / right-click actions: Open in file manager, Refresh (F5), Fetch
 (Ctrl+F5, runs `git fetch` on every remote), Terminal here, Copy path,
 Pull (`--ff-only`) and Push (both ask first). Search filters every column.
+
+**Create remote** (Ctrl+N) is enabled for a git repo that has no remote. It
+asks GitHub who the token belongs to and which organisations you are a member
+of, and makes you choose the owner explicitly: your own account or one of those
+organisations. You also choose Public or Private (private is preselected). It then creates the repository, adds it as
+`origin` using SSH or HTTPS per Settings, and pushes the current branch with
+upstream tracking. This needs a token with the `repo` scope, which `gh auth
+login` grants by default.
 
 **GitHub** (Ctrl+G) asks the GitHub API for every repository you own, collaborate
 on or can see through an organisation, and lists the ones that have no clone

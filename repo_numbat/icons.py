@@ -124,6 +124,15 @@ def toolbar_icon(name: str, size: int = 28) -> QIcon:
         p.drawEllipse(QRectF(s * 0.30, s * 0.16, s * 0.24, s * 0.52))
         p.drawLine(QPointF(s * 0.16, s * 0.42), QPointF(s * 0.68, s * 0.42))
         p.drawLine(QPointF(s * 0.62, s * 0.62), QPointF(s * 0.84, s * 0.84))
+    elif name == "remote":  # cloud with a plus sign
+        path = QPainterPath()
+        path.moveTo(s * 0.25, s * 0.55)
+        path.arcTo(QRectF(s * 0.12, s * 0.40, s * 0.30, s * 0.30), 90, 180)
+        path.arcTo(QRectF(s * 0.28, s * 0.22, s * 0.36, s * 0.36), 200, -200)
+        path.arcTo(QRectF(s * 0.58, s * 0.38, s * 0.30, s * 0.30), 90, -180)
+        p.drawPath(path)
+        p.drawLine(QPointF(s * 0.5, s * 0.60), QPointF(s * 0.5, s * 0.88))
+        p.drawLine(QPointF(s * 0.36, s * 0.74), QPointF(s * 0.64, s * 0.74))
     elif name == "clear":
         p.drawLine(QPointF(s * 0.28, s * 0.28), QPointF(s * 0.72, s * 0.72))
         p.drawLine(QPointF(s * 0.72, s * 0.28), QPointF(s * 0.28, s * 0.72))

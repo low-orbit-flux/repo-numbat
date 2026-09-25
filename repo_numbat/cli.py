@@ -18,12 +18,12 @@ def scan_all(root: Path, fetch: bool = False, workers: int = 8) -> list[RepoStat
 
 
 def format_table(rows: list[RepoStatus]) -> str:
-    headers = ["Repo", "Branch", "Status", "Untracked", "Modified", "Staged", "Ahead", "Behind", "Size", "Remote", "Owner"]
+    headers = ["Repo", "Branch", "Status", "Untracked", "Modified", "Staged", "Ahead", "Behind", "Dir size", "Repo size", "Remote", "Owner"]
     table = [headers]
     for r in rows:
         table.append([
             r.name, r.branch, r.summary, str(r.untracked), str(r.unstaged), str(r.staged),
-            str(r.ahead), str(r.behind), human_size(r.size_bytes), r.remote_url if r.has_remote else "none", r.owner_text,
+            str(r.ahead), str(r.behind), human_size(r.size_bytes), human_size(r.repo_bytes) if r.is_git else "", r.remote_url if r.has_remote else "none", r.owner_text,
         ])
     widths = [max(len(row[i]) for row in table) for i in range(len(headers))]
     lines = []

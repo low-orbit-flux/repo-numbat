@@ -71,6 +71,10 @@ def find_token(saved: str = "") -> tuple[str, str]:
 
 # ------------------------------------------------------------- HTTP layer
 def _get(url: str, token: str) -> tuple[object, dict]:
+    return _request("GET", url, token)
+
+
+def _request(method: str, url: str, token: str, body: dict | None = None) -> tuple[object, dict]:
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
@@ -78,7 +82,11 @@ def _get(url: str, token: str) -> tuple[object, dict]:
     }
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    req = urllib.request.Request(url, headers=headers)
+    data = None
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read().decode()), dict(resp.headers)
@@ -90,6 +98,15 @@ def _get(url: str, token: str) -> tuple[object, dict]:
             message = body
         if exc.code == 401:
             raise GitHubError("GitHub rejected the token (401). Check Settings > GitHub token.") from exc
+        if exc.code == 422:
+            errors = []
+            try:
+                errors = [e.get("message") or e.get("code", "") for e in json.loads(body).get("errors", [])]
+            except ValueError:
+                pass
+            raise GitHubError(f"GitHub refused the request: {message}" + (f" ({'; '.join(errors)})" if errors else "")) from exc
+        if exc.code == 404 and token:
+            raise GitHubError("GitHub API 404: not found, or the token lacks the 'repo' scope for this action.") from exc
         if exc.code == 403 and "rate limit" in message.lower():
             raise GitHubError("GitHub API rate limit hit. Add a token in Settings to raise it.") from exc
         raise GitHubError(f"GitHub API {exc.code}: {message}") from exc
@@ -192,3 +209,61 @@ def match_local(repos: list[GitHubRepo], local: dict[str, str], root: Path) -> N
         r.local_path = by_key.get(r.key) or folders.get(r.name.lower())
         if r.local_path is None and (root / r.name).is_dir():
             r.local_path = root / r.name
+
+
+# ------------------------------------------------------------ creating
+def whoami(token: str) -> str:
+    """Login of the token's user."""
+    if not token:
+        raise GitHubError("A GitHub token is required to create repositories. "
+                          "Run 'gh auth login' or set a token in Settings.")
+    me, _ = _get(f"{API}/user", token)
+    return me.get("login", "")
+
+
+def list_orgs(token: str) -> list[str]:
+    """Organisations the token's user belongs to."""
+    return [o["login"] for o in _paged(f"{API}/user/orgs", token)]
+
+
+def create_repo(token: str, owner: str, is_org: bool, name: str, description: str = "",
+                private: bool = True) -> GitHubRepo:
+    """Create an empty repository under *owner* (the user or one of their orgs)."""
+    url = f"{API}/orgs/{urllib.parse.quote(owner)}/repos" if is_org else f"{API}/user/repos"
+    body = {"name": name, "description": description, "private": private, "auto_init": False}
+    data, _ = _request("POST", url, token, body)
+    if not isinstance(data, dict) or "full_name" not in data:
+        raise GitHubError("unexpected response when creating the repository")
+    return _to_repo(data)
+
+
+def repo_visibility(token: str, owner: str, name: str) -> str:
+    """'public' | 'private' | 'unknown' for one GitHub repository."""
+    try:
+        data, _ = _get(f"{API}/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(name)}", token)
+    except GitHubError as exc:
+        if "404" in str(exc) or "not found" in str(exc).lower():
+            return "unknown"   # private and not visible to us, or gone
+        raise
+    if not isinstance(data, dict) or "private" not in data:
+        return "unknown"
+    return "private" if data["private"] else "public"
+
+
+def visibility_map(token: str, keys: list[str], username: str = "") -> dict[str, str]:
+    """Visibility for each 'owner/name' key, using one listing call plus per-repo lookups for the rest."""
+    result: dict[str, str] = {}
+    if not keys:
+        return result
+    try:
+        repos, _ = list_repos(token, username)
+        listed = {r.key: ("private" if r.private else "public") for r in repos}
+    except GitHubError:
+        listed = {}
+    for key in keys:
+        if key in listed:
+            result[key] = listed[key]
+        else:
+            owner, name = key.split("/", 1)
+            result[key] = repo_visibility(token, owner, name)
+    return result

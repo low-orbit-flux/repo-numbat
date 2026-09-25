@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QDial
                                QToolBar, QToolButton, QVBoxLayout, QWidget)
 
 from repo_numbat import APP_NAME, __version__
+from repo_numbat.create_remote_dialog import CreateRemoteDialog
+from repo_numbat.github import GitHubError, find_token, remote_key, visibility_map
 from repo_numbat.github_dialog import GitHubDialog
 from repo_numbat.gitscan import RepoStatus, _git, find_repos, human_size, scan_repo
 from repo_numbat.icons import app_icon, dot, toolbar_icon
@@ -41,18 +43,22 @@ COLS = [
     Col("To push", 66, "Local commits missing from the remote"),
     Col("To pull", 66, "Remote commits missing locally (run Fetch for an up-to-date count)"),
     Col("Remote", 120, "Whether a git remote is configured"),
+    Col("Visibility", 84, "public / private / unknown, asked from GitHub after each scan (Settings > GitHub)"),
     Col("Remote owner", 190, "User or group/organisation that owns the remote repository"),
     Col("Owner", 130, "Who owns the directory on this machine"),
     Col("Stashes", 62),
-    Col("Size", 84, "Disk space used by the folder, including .git"),
+    Col("Dir size", 84, "Disk space used by the whole folder, including untracked and ignored files"),
+    Col("Repo size", 84, "Disk space used by what git manages: tracked files plus .git (untracked build/data folders excluded)"),
     Col("Last commit", 120),
     Col("Remote URL", 280),
     Col("Path", 300),
 ]
 (C_DOT, C_REPO, C_BRANCH, C_STATUS, C_UNTRACKED, C_MODIFIED, C_STAGED, C_AHEAD, C_BEHIND, C_REMOTE,
- C_ROWNER, C_OWNER, C_STASH, C_SIZE, C_LAST, C_URL, C_PATH) = range(len(COLS))
+ C_VIS, C_ROWNER, C_OWNER, C_STASH, C_SIZE, C_REPOSIZE, C_LAST, C_URL, C_PATH) = range(len(COLS))
 NUMERIC = {C_UNTRACKED, C_MODIFIED, C_STAGED, C_AHEAD, C_BEHIND, C_STASH}
 ROLE_STATUS = Qt.ItemDataRole.UserRole + 1
+ROLE_SORT = Qt.ItemDataRole.UserRole + 2   # QStandardItem shares Display/Edit, so numbers sort via this role
+SEVERITY_RANK = {"bad": 0, "warn": 1, "ok": 2, "none": 3}
 
 
 def remote_owner(url: str) -> str:
@@ -88,6 +94,7 @@ class ScanSignals(QObject):
     result = Signal(int, object)      # generation, RepoStatus
     detail = Signal(str, str)         # repo path, text
     command = Signal(str, str, bool)  # repo name, output, ok
+    visibility = Signal(int, object, str)  # generation, {key: visibility}, error
     log = Signal(str)
 
 
@@ -118,6 +125,23 @@ class DetailTask(QRunnable):
         self.signals.detail.emit(str(self.path), text)
 
 
+class VisibilityTask(QRunnable):
+    def __init__(self, signals: ScanSignals, generation: int, keys: list[str], saved_token: str, username: str):
+        super().__init__()
+        self.signals, self.generation, self.keys = signals, generation, keys
+        self.saved_token, self.username = saved_token, username
+
+    def run(self) -> None:
+        try:
+            token, _ = find_token(self.saved_token)
+            result = visibility_map(token, self.keys, self.username)
+            self.signals.visibility.emit(self.generation, result, "")
+        except GitHubError as exc:
+            self.signals.visibility.emit(self.generation, {}, str(exc))
+        except Exception as exc:  # pragma: no cover - defensive
+            self.signals.visibility.emit(self.generation, {}, f"{type(exc).__name__}: {exc}")
+
+
 class GitCommandTask(QRunnable):
     def __init__(self, signals: ScanSignals, name: str, path: Path, args: list[str]):
         super().__init__()
@@ -140,7 +164,7 @@ class RepoFilter(QSortFilterProxyModel):
         self.only_attention = False
         self.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.setFilterKeyColumn(-1)
-        self.setSortRole(Qt.ItemDataRole.EditRole)
+        self.setSortRole(ROLE_SORT)
 
     def filterAcceptsRow(self, row, parent):
         item = self.sourceModel().item(row, C_DOT)
@@ -182,6 +206,9 @@ class SettingsDialog(QDialog):
         self.gh_token.setEchoMode(QLineEdit.EchoMode.Password)
         self.gh_token.setPlaceholderText("optional; else $GITHUB_TOKEN, $GH_TOKEN or 'gh auth token' is used")
         form.addRow("GitHub token", self.gh_token)
+        self.gh_vis = QCheckBox("Ask GitHub whether each repo is public or private after every scan")
+        self.gh_vis.setChecked(settings.value("github_visibility", True, type=bool))
+        form.addRow("", self.gh_vis)
         self.gh_ssh = QCheckBox("Clone with SSH URLs (git@github.com:…) instead of HTTPS")
         self.gh_ssh.setChecked(settings.value("github_ssh", True, type=bool))
         form.addRow("", self.gh_ssh)
@@ -202,6 +229,7 @@ class SettingsDialog(QDialog):
         self.settings.setValue("github_user", self.gh_user.text().strip())
         self.settings.setValue("github_token", self.gh_token.text().strip())
         self.settings.setValue("github_ssh", self.gh_ssh.isChecked())
+        self.settings.setValue("github_visibility", self.gh_vis.isChecked())
         super().accept()
 
 
@@ -222,7 +250,9 @@ class MainWindow(QMainWindow):
         self.signals.result.connect(self._on_result)
         self.signals.detail.connect(self._on_detail)
         self.signals.command.connect(self._on_command)
+        self.signals.visibility.connect(self._on_visibility)
         self.signals.log.connect(self.log)
+        self.visibility_cache: dict[str, str] = {}
         self.pool = QThreadPool(self)
         self.generation = 0
         self.pending = 0
@@ -275,6 +305,8 @@ class MainWindow(QMainWindow):
         self.act_pull = act("Pull", "pull", self.pull_selected, tip="git pull --ff-only in the selected repo")
         self.act_push = act("Push", "push", self.push_selected, tip="git push in the selected repo")
         self.act_rescan_one = act("Rescan this repo", "refresh", self.rescan_selected)
+        self.act_create_remote = act("Create remote", "remote", self.create_remote_selected, "Ctrl+N",
+                                     "Create a GitHub repository for the selected repo (it has no remote) and connect it")
         self.act_github = act("GitHub", "github", self.show_github, "Ctrl+G",
                               "List your GitHub repositories that are not cloned into the repos folder")
         self.act_settings = act("Settings…", "settings", self.show_settings, "Ctrl+,")
@@ -296,7 +328,7 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_settings); m.addSeparator(); m.addAction(self.act_quit)
         m = mb.addMenu("&Repo")
         m.addActions([self.act_open, self.act_term, self.act_copy, self.act_rescan_one]); m.addSeparator()
-        m.addActions([self.act_pull, self.act_push]); m.addSeparator()
+        m.addActions([self.act_pull, self.act_push, self.act_create_remote]); m.addSeparator()
         m.addAction(self.act_github)
         m = mb.addMenu("&View")
         m.addActions([self.act_show_nongit, self.act_only_attention]); m.addSeparator()
@@ -319,7 +351,7 @@ class MainWindow(QMainWindow):
         for a in (self.act_open, self.act_refresh, self.act_fetch, self.act_stop):
             tb.addAction(a)
         tb.addSeparator()
-        for a in (self.act_term, self.act_copy, self.act_pull, self.act_push):
+        for a in (self.act_term, self.act_copy, self.act_pull, self.act_push, self.act_create_remote):
             tb.addAction(a)
         tb.addSeparator()
         tb.addAction(self.act_github)
@@ -435,6 +467,7 @@ class MainWindow(QMainWindow):
         self._update_summary()
 
     def refresh_with_fetch(self):
+        self.visibility_cache.clear()
         self.refresh(fetch=True)
 
     def refresh(self, checked: bool = False, fetch: bool | None = None):
@@ -468,10 +501,12 @@ class MainWindow(QMainWindow):
         self._scan_done()
 
     def rescan_selected(self):
-        st = self.selected_status()
-        if st:
+        if st := self.selected_status():
             self.log(f"rescanning {st.name}", "SCAN")
-            self.pool.start(ScanTask(self.signals, self.generation, st.path, self.settings.value("fetch", False, type=bool)))
+            self.rescan_path(st.path)
+
+    def rescan_path(self, path: Path):
+        self.pool.start(ScanTask(self.signals, self.generation, path, self.settings.value("fetch", False, type=bool)))
 
     @Slot(int, object)
     def _on_result(self, generation: int, st: RepoStatus):
@@ -501,6 +536,7 @@ class MainWindow(QMainWindow):
         self._update_summary()
         if self.statuses:
             self.log(self.summary_label.text(), "SCAN")
+            self._start_visibility()
 
     def _find_row(self, path: Path) -> int | None:
         for r in range(self.model.rowCount()):
@@ -513,8 +549,8 @@ class MainWindow(QMainWindow):
 
         def put(col: int, value, color: QColor | None = None, tip: str = ""):
             item = self.model.item(row, col)
-            item.setData(value, Qt.ItemDataRole.EditRole)
             item.setData(value, Qt.ItemDataRole.DisplayRole)
+            item.setData(value if isinstance(value, int) else str(value).lower(), ROLE_SORT)
             item.setForeground(color or QColor(C["text"]))
             item.setToolTip(tip)
             if col in NUMERIC:
@@ -524,6 +560,7 @@ class MainWindow(QMainWindow):
         first.setData(st, ROLE_STATUS)
         first.setIcon(dot(st.severity))
         first.setData("", Qt.ItemDataRole.DisplayRole)
+        first.setData(SEVERITY_RANK[st.severity], ROLE_SORT)
         first.setToolTip(st.summary)
         put(C_REPO, st.name, None if st.is_git else muted, str(st.path))
         put(C_BRANCH, st.branch, None if st.branch and not st.branch.startswith("(") else muted,
@@ -534,10 +571,12 @@ class MainWindow(QMainWindow):
                        (C_AHEAD, st.ahead), (C_BEHIND, st.behind), (C_STASH, st.stashes)):
             if not st.is_git:
                 put(col, "", muted)
+                self.model.item(row, col).setData(-1, ROLE_SORT)
             else:
                 put(col, n, warn if n else muted)
         if st.is_git and st.has_remote and not st.upstream and st.head:
             put(C_AHEAD, "no upstream", warn, "The branch has no upstream branch, so nothing has been pushed")
+            self.model.item(row, C_AHEAD).setData(10**9, ROLE_SORT)
         if st.is_git and st.has_remote and not st.fetched:
             self.model.item(row, C_BEHIND).setToolTip("Based on the last fetch; press Fetch for a live count")
         if not st.is_git:
@@ -546,19 +585,88 @@ class MainWindow(QMainWindow):
             put(C_REMOTE, "connected", ok, f"{st.remote_name}: {st.remote_url}")
         else:
             put(C_REMOTE, "not connected", muted)
+        self._fill_visibility(row, st)
         put(C_ROWNER, remote_owner(st.remote_url) if st.is_git else "", None, st.remote_url)
         own = st.ownership
         put(C_OWNER, st.owner_text, ok if (own.is_mine or own.in_my_group) else warn,
             f"owner {own.owner}" + (f", group {own.group}" if own.group else "") + (f" ({own.error})" if own.error else ""))
         put(C_LAST, st.last_commit if st.is_git else "", muted if not st.last_commit else None)
-        size = self.model.item(row, C_SIZE)
-        size.setData(st.size_bytes, Qt.ItemDataRole.EditRole)
-        size.setData(human_size(st.size_bytes), Qt.ItemDataRole.DisplayRole)
-        size.setForeground(QColor(C["text"]))
-        size.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        size.setToolTip(f"{st.size_bytes:,} bytes")
+        def put_size(col: int, n: int, tip: str, show: bool = True):
+            item = self.model.item(row, col)
+            item.setData(human_size(n) if show else "", Qt.ItemDataRole.DisplayRole)
+            item.setData(n if show else -1, ROLE_SORT)
+            item.setForeground(QColor(C["text"]))
+            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            item.setToolTip(tip if show else "")
+        put_size(C_SIZE, st.size_bytes, f"{st.size_bytes:,} bytes")
+        extra = st.size_bytes - st.repo_bytes
+        put_size(C_REPOSIZE, st.repo_bytes,
+                 f"tracked files {human_size(st.repo_bytes - st.git_bytes)} + .git {human_size(st.git_bytes)}"
+                 + (f"; {human_size(extra)} of untracked/ignored files not counted" if extra > 0 else ""),
+                 show=st.is_git)
         put(C_URL, st.remote_url, muted if not st.remote_url else None)
         put(C_PATH, str(st.path), muted)
+
+    def _fill_visibility(self, row: int, st: RepoStatus):
+        item = self.model.item(row, C_VIS)
+        key = remote_key(st.remote_url) if st.is_git else None
+        if key and not st.visibility:
+            st.visibility = self.visibility_cache.get(key, "")
+        colors = {"public": QColor(C["warn"]), "private": QColor(C["ok"]), "unknown": QColor(C["muted"])}
+        if not st.is_git:
+            text, color, tip = "", QColor(C["muted"]), ""
+        elif not st.has_remote:
+            text, color, tip = "local", QColor(C["muted"]), "No remote, so the repo exists only on this machine"
+        elif key is None:
+            text, color, tip = "unknown", QColor(C["muted"]), "Not a GitHub remote; visibility is only looked up on GitHub"
+        elif st.visibility:
+            text, color = st.visibility, colors[st.visibility]
+            tip = "GitHub could not show this repo: private and not visible with the current auth, or removed" if st.visibility == "unknown" else f"{st.visibility} on GitHub"
+        else:
+            text, color, tip = "…", QColor(C["muted"]), "Waiting for GitHub"
+        item.setData(text, Qt.ItemDataRole.DisplayRole)
+        item.setData(text, ROLE_SORT)
+        item.setForeground(color)
+        item.setToolTip(tip)
+
+    def _start_visibility(self):
+        if not self.settings.value("github_visibility", True, type=bool):
+            return
+        keys = sorted({k for k in (remote_key(s.remote_url) for s in self.statuses.values() if s.is_git) if k}
+                      - set(self.visibility_cache))
+        if not keys:
+            return
+        self.log(f"asking GitHub about {len(keys)} repos' visibility", "GH")
+        self.pool.start(VisibilityTask(self.signals, self.generation, keys,
+                                       self.settings.value("github_token", ""), self.settings.value("github_user", "")))
+
+    @Slot(int, object, str)
+    def _on_visibility(self, generation: int, result: dict, error: str):
+        if error:
+            self.log(f"visibility lookup failed: {error}", "ERR")
+        if generation != self.generation:
+            return
+        self.visibility_cache.update(result)
+        for r in range(self.model.rowCount()):
+            st: RepoStatus = self.model.item(r, C_DOT).data(ROLE_STATUS)
+            key = remote_key(st.remote_url) if st.is_git else None
+            if key in result:
+                st.visibility = result[key]
+                self._fill_visibility(r, st)
+            elif key and error and not st.visibility:
+                st.visibility = "unknown"
+                self._fill_visibility(r, st)
+
+    def note_visibility(self, path: Path, visibility: str):
+        """Called after Create remote so the new repo shows its visibility without another lookup."""
+        st = self.statuses.get(str(path))
+        if st and (key := remote_key(st.remote_url)):
+            self.visibility_cache[key] = visibility
+        # the rescan started by the dialog will pick it up from the cache; for the current row as well:
+        row = self._find_row(path)
+        if row is not None and st:
+            st.visibility = visibility
+            self._fill_visibility(row, st)
 
     def _update_summary(self):
         sts = [s for s in self.statuses.values() if s.is_git]
@@ -589,10 +697,9 @@ class MainWindow(QMainWindow):
             a.setEnabled(enabled)
         for a in (self.act_rescan_one, self.act_pull, self.act_push):
             a.setEnabled(enabled and st.is_git)
-        if st and st.has_remote:
-            self.act_pull.setEnabled(True); self.act_push.setEnabled(True)
-        else:
-            self.act_pull.setEnabled(False); self.act_push.setEnabled(False)
+        has_remote = bool(st and st.is_git and st.has_remote)
+        self.act_pull.setEnabled(has_remote); self.act_push.setEnabled(has_remote)
+        self.act_create_remote.setEnabled(bool(st and st.is_git and not st.has_remote))
         if st is None:
             self.detail_view.clear()
             return
@@ -618,7 +725,7 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         menu.addActions([self.act_open, self.act_term, self.act_copy, self.act_rescan_one])
         menu.addSeparator()
-        menu.addActions([self.act_pull, self.act_push])
+        menu.addActions([self.act_pull, self.act_push, self.act_create_remote])
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
     # ------------------------------------------------------------ actions
@@ -672,6 +779,11 @@ class MainWindow(QMainWindow):
             if self.root != old_root:
                 self.log(f"repos folder changed to {self.root}")
             self.refresh()
+
+    def create_remote_selected(self):
+        st = self.selected_status()
+        if st and st.is_git and not st.has_remote:
+            CreateRemoteDialog(self, st).exec()
 
     def show_github(self):
         GitHubDialog(self).exec()
