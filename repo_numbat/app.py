@@ -17,7 +17,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QDial
                                QToolBar, QToolButton, QVBoxLayout, QWidget)
 
 from repo_numbat import APP_NAME, __version__
-from repo_numbat.gitscan import RepoStatus, _git, find_repos, scan_repo
+from repo_numbat.github_dialog import GitHubDialog
+from repo_numbat.gitscan import RepoStatus, _git, find_repos, human_size, scan_repo
 from repo_numbat.icons import app_icon, dot, toolbar_icon
 from repo_numbat.platform_open import open_folder, open_terminal
 from repo_numbat.theme import C, apply_theme
@@ -43,12 +44,13 @@ COLS = [
     Col("Remote owner", 190, "User or group/organisation that owns the remote repository"),
     Col("Owner", 130, "Who owns the directory on this machine"),
     Col("Stashes", 62),
+    Col("Size", 84, "Disk space used by the folder, including .git"),
     Col("Last commit", 120),
     Col("Remote URL", 280),
     Col("Path", 300),
 ]
 (C_DOT, C_REPO, C_BRANCH, C_STATUS, C_UNTRACKED, C_MODIFIED, C_STAGED, C_AHEAD, C_BEHIND, C_REMOTE,
- C_ROWNER, C_OWNER, C_STASH, C_LAST, C_URL, C_PATH) = range(len(COLS))
+ C_ROWNER, C_OWNER, C_STASH, C_SIZE, C_LAST, C_URL, C_PATH) = range(len(COLS))
 NUMERIC = {C_UNTRACKED, C_MODIFIED, C_STAGED, C_AHEAD, C_BEHIND, C_STASH}
 ROLE_STATUS = Qt.ItemDataRole.UserRole + 1
 
@@ -164,6 +166,17 @@ class SettingsDialog(QDialog):
         self.threads = QSpinBox(); self.threads.setRange(1, 32)
         self.threads.setValue(settings.value("threads", 8, type=int))
         form.addRow("Parallel scans", self.threads)
+        form.addRow(QLabel("<b>GitHub</b> (used by the GitHub button)"))
+        self.gh_user = QLineEdit(settings.value("github_user", ""))
+        self.gh_user.setPlaceholderText("only needed without a token; guessed from your remotes if empty")
+        form.addRow("GitHub username", self.gh_user)
+        self.gh_token = QLineEdit(settings.value("github_token", ""))
+        self.gh_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self.gh_token.setPlaceholderText("optional; else $GITHUB_TOKEN, $GH_TOKEN or 'gh auth token' is used")
+        form.addRow("GitHub token", self.gh_token)
+        self.gh_ssh = QCheckBox("Clone with SSH URLs (git@github.com:…) instead of HTTPS")
+        self.gh_ssh.setChecked(settings.value("github_ssh", True, type=bool))
+        form.addRow("", self.gh_ssh)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject)
         form.addRow(buttons)
@@ -178,6 +191,9 @@ class SettingsDialog(QDialog):
         self.settings.setValue("fetch", self.fetch.isChecked())
         self.settings.setValue("interval", self.interval.value())
         self.settings.setValue("threads", self.threads.value())
+        self.settings.setValue("github_user", self.gh_user.text().strip())
+        self.settings.setValue("github_token", self.gh_token.text().strip())
+        self.settings.setValue("github_ssh", self.gh_ssh.isChecked())
         super().accept()
 
 
@@ -251,6 +267,8 @@ class MainWindow(QMainWindow):
         self.act_pull = act("Pull", "pull", self.pull_selected, tip="git pull --ff-only in the selected repo")
         self.act_push = act("Push", "push", self.push_selected, tip="git push in the selected repo")
         self.act_rescan_one = act("Rescan this repo", "refresh", self.rescan_selected)
+        self.act_github = act("GitHub", "github", self.show_github, "Ctrl+G",
+                              "List your GitHub repositories that are not cloned into the repos folder")
         self.act_settings = act("Settings…", "settings", self.show_settings, "Ctrl+,")
         self.act_quit = QAction("Quit", self); self.act_quit.setShortcut(QKeySequence.StandardKey.Quit)
         self.act_quit.triggered.connect(self.close)
@@ -270,7 +288,8 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_settings); m.addSeparator(); m.addAction(self.act_quit)
         m = mb.addMenu("&Repo")
         m.addActions([self.act_open, self.act_term, self.act_copy, self.act_rescan_one]); m.addSeparator()
-        m.addActions([self.act_pull, self.act_push])
+        m.addActions([self.act_pull, self.act_push]); m.addSeparator()
+        m.addAction(self.act_github)
         m = mb.addMenu("&View")
         m.addActions([self.act_show_nongit, self.act_only_attention]); m.addSeparator()
         self.columns_menu = m.addMenu("Columns")
@@ -289,6 +308,7 @@ class MainWindow(QMainWindow):
         for a in (self.act_term, self.act_copy, self.act_pull, self.act_push):
             tb.addAction(a)
         tb.addSeparator()
+        tb.addAction(self.act_github)
         tb.addAction(self.act_settings)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -514,6 +534,12 @@ class MainWindow(QMainWindow):
         put(C_OWNER, st.owner_text, ok if (own.is_mine or own.in_my_group) else warn,
             f"owner {own.owner}" + (f", group {own.group}" if own.group else "") + (f" ({own.error})" if own.error else ""))
         put(C_LAST, st.last_commit if st.is_git else "", muted if not st.last_commit else None)
+        size = self.model.item(row, C_SIZE)
+        size.setData(st.size_bytes, Qt.ItemDataRole.EditRole)
+        size.setData(human_size(st.size_bytes), Qt.ItemDataRole.DisplayRole)
+        size.setForeground(QColor(C["text"]))
+        size.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        size.setToolTip(f"{st.size_bytes:,} bytes")
         put(C_URL, st.remote_url, muted if not st.remote_url else None)
         put(C_PATH, str(st.path), muted)
 
@@ -629,6 +655,9 @@ class MainWindow(QMainWindow):
             if self.root != old_root:
                 self.log(f"repos folder changed to {self.root}")
             self.refresh()
+
+    def show_github(self):
+        GitHubDialog(self).exec()
 
     def about(self):
         QMessageBox.about(self, "About Repo Numbat",

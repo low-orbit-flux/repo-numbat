@@ -40,6 +40,7 @@ class RepoStatus:
     stashes: int = 0
 
     last_commit: str = ""  # relative date of HEAD
+    size_bytes: int = 0    # disk usage of the directory (including .git)
     fetched: bool = False
     ownership: Ownership = field(default_factory=Ownership)
 
@@ -98,6 +99,41 @@ class RepoStatus:
         return describe_ownership(self.ownership)
 
 
+# ------------------------------------------------------------------- sizes
+def dir_size(path: Path) -> int:
+    """Disk usage of *path* in bytes (allocated blocks on POSIX, file sizes elsewhere)."""
+    total = 0
+    stack = [path]
+    while stack:
+        current = stack.pop()
+        try:
+            with os.scandir(current) as it:
+                for entry in it:
+                    try:
+                        if entry.is_symlink():
+                            continue
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(Path(entry.path))
+                        else:
+                            st = entry.stat(follow_symlinks=False)
+                            blocks = getattr(st, "st_blocks", None)
+                            total += blocks * 512 if blocks is not None else st.st_size
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return total
+
+
+def human_size(n: int) -> str:
+    value = float(n)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if value < 1024 or unit == "TiB":
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{n} B"
+
+
 # ---------------------------------------------------------------------- git io
 def _git(path: Path, *args: str, timeout: int = GIT_TIMEOUT) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0", LC_ALL="C", GIT_OPTIONAL_LOCKS="0")
@@ -136,6 +172,7 @@ def find_repos(root: Path) -> list[Path]:
 def scan_repo(path: Path, fetch: bool = False) -> RepoStatus:
     status = RepoStatus(name=path.name, path=path)
     status.ownership = Ownership.of(path)
+    status.size_bytes = dir_size(path)
     if not is_git_repo(path):
         status.is_git = False
         return status

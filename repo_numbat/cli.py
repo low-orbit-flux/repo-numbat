@@ -5,7 +5,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from repo_numbat.gitscan import RepoStatus, find_repos, scan_repo
+from repo_numbat.gitscan import RepoStatus, find_repos, human_size, scan_repo
 
 
 def default_root() -> Path:
@@ -18,12 +18,12 @@ def scan_all(root: Path, fetch: bool = False, workers: int = 8) -> list[RepoStat
 
 
 def format_table(rows: list[RepoStatus]) -> str:
-    headers = ["Repo", "Branch", "Status", "Untracked", "Modified", "Staged", "Ahead", "Behind", "Remote", "Owner"]
+    headers = ["Repo", "Branch", "Status", "Untracked", "Modified", "Staged", "Ahead", "Behind", "Size", "Remote", "Owner"]
     table = [headers]
     for r in rows:
         table.append([
             r.name, r.branch, r.summary, str(r.untracked), str(r.unstaged), str(r.staged),
-            str(r.ahead), str(r.behind), r.remote_url if r.has_remote else "none", r.owner_text,
+            str(r.ahead), str(r.behind), human_size(r.size_bytes), r.remote_url if r.has_remote else "none", r.owner_text,
         ])
     widths = [max(len(row[i]) for row in table) for i in range(len(headers))]
     lines = []

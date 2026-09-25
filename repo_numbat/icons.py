@@ -118,6 +118,12 @@ def toolbar_icon(name: str, size: int = 28) -> QIcon:
         p.drawLine(QPointF(s * 0.5, s * 0.20), QPointF(s * 0.5, s * 0.72))
         _arrow_head(p, QPointF(s * 0.5, s * 0.72), 90, s * 0.22)
         p.drawLine(QPointF(s * 0.22, s * 0.84), QPointF(s * 0.78, s * 0.84))
+    elif name == "github":  # a globe with a magnifier
+        g = QRectF(s * 0.16, s * 0.16, s * 0.52, s * 0.52)
+        p.drawEllipse(g)
+        p.drawEllipse(QRectF(s * 0.30, s * 0.16, s * 0.24, s * 0.52))
+        p.drawLine(QPointF(s * 0.16, s * 0.42), QPointF(s * 0.68, s * 0.42))
+        p.drawLine(QPointF(s * 0.62, s * 0.62), QPointF(s * 0.84, s * 0.84))
     elif name == "clear":
         p.drawLine(QPointF(s * 0.28, s * 0.28), QPointF(s * 0.72, s * 0.72))
         p.drawLine(QPointF(s * 0.72, s * 0.28), QPointF(s * 0.28, s * 0.72))
