@@ -92,19 +92,36 @@ Set `REPO_NUMBAT_PYTHON=/path/to/python3.12` to pick the interpreter, or
 Alternatively install it as a package: `pip install .` gives you a
 `repo-numbat` command.
 
-### Menu entries, dock icons and shortcuts
+### Installing on the machine
 
-* Linux: `./scripts/install-desktop.sh` adds Repo Numbat with the numbat icon
-  to your application menu. GNOME and KDE also take the dock/taskbar icon of
-  the running window from that entry: the app announces the app id
-  `repo-numbat` and the launcher script runs with that process name so
-  Wayland and X11 both match `repo-numbat.desktop`. Start it once from the
-  menu (or the script) after installing and the icon shows in the dock.
-* macOS: build the app bundle (below), drag it into Applications and the
-  numbat appears in the Dock and Launchpad. Running from the script also
-  shows the icon in the Dock while it is open.
-* Windows: `.\scripts\install-shortcut.ps1` creates a Start Menu shortcut
-  using `numbat.ico`.
+`scripts/install.sh` (Linux, macOS) and `scripts\install.ps1` or
+`scripts\install.bat` (Windows) install a self-contained copy that does not
+depend on this checkout:
+
+```sh
+./scripts/install.sh              # Linux/macOS, current user, no root needed
+./scripts/install.sh --system     # Linux: /opt/repo-numbat + /usr/local/bin (sudo)
+./scripts/install.sh --uninstall
+```
+
+```powershell
+.\scripts\install.ps1             # Windows, current user (or double-click install.bat)
+.\scripts\install.ps1 -Uninstall
+```
+
+* Linux, any distro: program files go to `~/.local/share/repo-numbat` with
+  their own virtualenv, `~/.local/bin/repo-numbat` is linked, and a menu
+  entry plus the numbat icon are installed. GNOME and KDE show that icon in
+  the dock for the running window, on Wayland and X11.
+* macOS: builds `Repo Numbat.app` and copies it into `/Applications` (or
+  `~/Applications`), and links `~/.local/bin/repo-numbat` to it. The numbat
+  shows in the Dock and Launchpad.
+* Windows: program files go to `%LOCALAPPDATA%\Programs\Repo Numbat` with
+  their own virtualenv, a Start Menu shortcut with `numbat.ico` is created,
+  and `repo-numbat` is added to the user PATH.
+
+Nothing beyond Python 3.10+ and git is needed on any platform; the installer
+downloads PySide6 into the private virtualenv. Settings are kept on uninstall.
 
 ### Building a standalone app (macOS `.app`, Windows `.exe`, Linux)
 

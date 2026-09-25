@@ -5,7 +5,14 @@
 # (e.g. --cli, --fetch, --root DIR).
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# resolve symlinks (the installer links this script into ~/.local/bin); works on macOS too
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+    DIR="$(cd "$(dirname "$SELF")" && pwd)"
+    SELF="$(readlink "$SELF")"
+    case "$SELF" in /*) ;; *) SELF="$DIR/$SELF" ;; esac
+done
+HERE="$(cd "$(dirname "$SELF")" && pwd)"
 PROJECT="$(cd "$HERE/.." && pwd)"
 # shellcheck source=env.sh
 source "$PROJECT/scripts/env.sh"
