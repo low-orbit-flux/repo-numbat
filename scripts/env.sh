@@ -39,6 +39,11 @@ if ! "$VENV_PY" -c 'import PySide6' 2>/dev/null; then
     fi
 fi
 
+# process-name alias used by the launcher (a symlink inside bin/ keeps venv detection working)
+if [ ! -e "$VENV/bin/repo-numbat" ]; then
+    ln -s python "$VENV/bin/repo-numbat" 2>/dev/null || cp "$VENV_PY" "$VENV/bin/repo-numbat"
+fi
+
 export PYTHONPATH="$PROJECT${PYTHONPATH:+:$PYTHONPATH}"
 # Activate when sourced interactively so `python -m repo_numbat` just works.
 if [ -f "$VENV/bin/activate" ] && [ "${BASH_SOURCE[0]:-}" != "$0" ]; then

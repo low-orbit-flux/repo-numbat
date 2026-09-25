@@ -92,14 +92,36 @@ Set `REPO_NUMBAT_PYTHON=/path/to/python3.12` to pick the interpreter, or
 Alternatively install it as a package: `pip install .` gives you a
 `repo-numbat` command.
 
-### Menu entries and shortcuts
+### Menu entries, dock icons and shortcuts
 
 * Linux: `./scripts/install-desktop.sh` adds Repo Numbat with the numbat icon
-  to your application menu.
+  to your application menu. GNOME and KDE also take the dock/taskbar icon of
+  the running window from that entry: the app announces the app id
+  `repo-numbat` and the launcher script runs with that process name so
+  Wayland and X11 both match `repo-numbat.desktop`. Start it once from the
+  menu (or the script) after installing and the icon shows in the dock.
+* macOS: build the app bundle (below), drag it into Applications and the
+  numbat appears in the Dock and Launchpad. Running from the script also
+  shows the icon in the Dock while it is open.
 * Windows: `.\scripts\install-shortcut.ps1` creates a Start Menu shortcut
   using `numbat.ico`.
-* macOS: drag `scripts/repo-numbat.command` to the Dock, or wrap it with
-  Automator as an Application.
+
+### Building a standalone app (macOS `.app`, Windows `.exe`, Linux)
+
+`scripts/build-app.sh` (macOS/Linux) and `scripts\build-app.bat` (Windows)
+use PyInstaller with `packaging/repo-numbat.spec`:
+
+```sh
+./scripts/build-app.sh          # macOS: dist/Repo Numbat.app, drag into /Applications
+./scripts/build-app.sh --dmg    # macOS: also dist/Repo-Numbat.dmg with an Applications link
+scripts\build-app.bat           # Windows: dist\Repo Numbat\Repo Numbat.exe
+```
+
+The bundle carries its own Python and Qt (about 230 MB) and needs no
+virtualenv on the target machine. It must be built on the platform it is for.
+The macOS bundle is ad-hoc signed so it opens on the machine that built it;
+to give it to other Macs, sign and notarize it with your Developer ID or they
+will need to right-click > Open the first time.
 
 ## Layout
 

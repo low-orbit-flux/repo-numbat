@@ -3,7 +3,7 @@
 
 Run from a venv that has PySide6 installed:
     python tools/make_icon.py
-Pillow is optional; it is only used to write the .ico file.
+Pillow is optional; it is only used to write the .ico and .icns files.
 """
 from __future__ import annotations
 
@@ -48,6 +48,10 @@ def main() -> int:
     ico = ASSETS / "numbat.ico"
     frames[-1].save(ico, format="ICO", sizes=[(f.width, f.height) for f in frames], append_images=frames[:-1])
     print("wrote", ico)
+    icns = ASSETS / "numbat.icns"
+    big = Image.open(ASSETS / "numbat-512.png")
+    big.save(icns, format="ICNS", sizes=[(s, s) for s in (16, 32, 64, 128, 256, 512)])
+    print("wrote", icns)
     return 0
 
 

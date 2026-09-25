@@ -13,7 +13,7 @@ from PySide6.QtCore import (QObject, QRunnable, QSettings, QSize, QSortFilterPro
 from PySide6.QtGui import QAction, QActionGroup, QColor, QGuiApplication, QKeySequence, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog,
                                QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
-                               QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QSpinBox, QSplitter, QTableView, QTabWidget,
+                               QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QSpinBox, QSplitter, QStyledItemDelegate, QTableView, QTabWidget,
                                QToolBar, QToolButton, QVBoxLayout, QWidget)
 
 from repo_numbat import APP_NAME, __version__
@@ -73,6 +73,14 @@ def remote_owner(url: str) -> str:
         return host
     owner = "/".join(parts[:-1])
     return f"{owner} @ {host}" if host else owner
+
+
+class ElideLeftDelegate(QStyledItemDelegate):
+    """Keep the end of long values (the repo name in a path or URL) visible when the column is narrow."""
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        option.textElideMode = Qt.TextElideMode.ElideLeft
 
 
 # ----------------------------------------------------------------- workers
@@ -302,6 +310,12 @@ class MainWindow(QMainWindow):
         tb.setIconSize(QSize(28, 28))
         tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         self.addToolBar(tb)
+        logo = QLabel()
+        logo.setPixmap(app_icon().pixmap(QSize(44, 44)))
+        logo.setToolTip(f"{APP_NAME} {__version__}")
+        logo.setContentsMargins(4, 0, 6, 0)
+        tb.addWidget(logo)
+        tb.addSeparator()
         for a in (self.act_open, self.act_refresh, self.act_fetch, self.act_stop):
             tb.addAction(a)
         tb.addSeparator()
@@ -346,6 +360,9 @@ class MainWindow(QMainWindow):
         for i, col in enumerate(COLS):
             self.table.setColumnWidth(i, col.width)
         hh.setSectionResizeMode(C_DOT, QHeaderView.ResizeMode.Fixed)
+        self.elide_left = ElideLeftDelegate(self.table)
+        for col in (C_PATH, C_URL):
+            self.table.setItemDelegateForColumn(col, self.elide_left)
         self.table.sortByColumn(C_REPO, Qt.SortOrder.AscendingOrder)
 
         for i, col in enumerate(COLS):
@@ -672,6 +689,8 @@ def run_gui(root: Path | None = None, fetch: bool = False) -> int:
     QApplication.setApplicationName("repo-numbat")
     QApplication.setApplicationDisplayName(APP_NAME)
     QApplication.setOrganizationName("repo-numbat")
+    # Wayland/GNOME match the window to repo-numbat.desktop through this app id
+    QGuiApplication.setDesktopFileName("repo-numbat")
     if sys.platform == "win32":  # taskbar icon grouping
         try:
             import ctypes

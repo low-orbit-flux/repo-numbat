@@ -10,4 +10,6 @@ PROJECT="$(cd "$HERE/.." && pwd)"
 # shellcheck source=env.sh
 source "$PROJECT/scripts/env.sh"
 
-exec "$VENV_PY" -m repo_numbat "$@"
+# $VENV/bin/repo-numbat is a symlink to the venv python (made by env.sh); running
+# through it names the process repo-numbat so the desktop icon matches on X11.
+exec "$VENV/bin/repo-numbat" -m repo_numbat "$@"
