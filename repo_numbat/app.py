@@ -90,6 +90,14 @@ class ElideLeftDelegate(QStyledItemDelegate):
 
 
 # ----------------------------------------------------------------- workers
+def emit_safely(signal, *args) -> None:
+    """Emit unless the window (and its signal object) was already destroyed."""
+    try:
+        signal.emit(*args)
+    except RuntimeError:
+        pass
+
+
 class ScanSignals(QObject):
     result = Signal(int, object)      # generation, RepoStatus
     detail = Signal(str, str)         # repo path, text
@@ -105,7 +113,7 @@ class ScanTask(QRunnable):
         self.setAutoDelete(True)
 
     def run(self) -> None:
-        self.signals.result.emit(self.generation, scan_repo(self.path, fetch=self.fetch))
+        emit_safely(self.signals.result, self.generation, scan_repo(self.path, fetch=self.fetch))
 
 
 class DetailTask(QRunnable):
@@ -119,10 +127,10 @@ class DetailTask(QRunnable):
             log = _git(self.path, "log", "--oneline", "-8", "--decorate").stdout
             remotes = _git(self.path, "remote", "-v").stdout
         except (OSError, subprocess.TimeoutExpired) as exc:
-            self.signals.detail.emit(str(self.path), f"error: {exc}")
+            emit_safely(self.signals.detail, str(self.path), f"error: {exc}")
             return
         text = f"$ git status --short --branch\n{branch}\n$ git log --oneline -8\n{log or '(no commits)\n'}\n$ git remote -v\n{remotes or '(no remotes)\n'}"
-        self.signals.detail.emit(str(self.path), text)
+        emit_safely(self.signals.detail, str(self.path), text)
 
 
 class VisibilityTask(QRunnable):
@@ -135,11 +143,11 @@ class VisibilityTask(QRunnable):
         try:
             token, _ = find_token(self.saved_token)
             result = visibility_map(token, self.keys, self.username)
-            self.signals.visibility.emit(self.generation, result, "")
+            emit_safely(self.signals.visibility, self.generation, result, "")
         except GitHubError as exc:
-            self.signals.visibility.emit(self.generation, {}, str(exc))
+            emit_safely(self.signals.visibility, self.generation, {}, str(exc))
         except Exception as exc:  # pragma: no cover - defensive
-            self.signals.visibility.emit(self.generation, {}, f"{type(exc).__name__}: {exc}")
+            emit_safely(self.signals.visibility, self.generation, {}, f"{type(exc).__name__}: {exc}")
 
 
 class GitCommandTask(QRunnable):
@@ -151,9 +159,9 @@ class GitCommandTask(QRunnable):
         try:
             proc = _git(self.path, *self.args, timeout=300)
             out = (proc.stdout + proc.stderr).strip()
-            self.signals.command.emit(self.name, out or f"git {' '.join(self.args)}: done", proc.returncode == 0)
+            emit_safely(self.signals.command, self.name, out or f"git {' '.join(self.args)}: done", proc.returncode == 0)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            self.signals.command.emit(self.name, str(exc), False)
+            emit_safely(self.signals.command, self.name, str(exc), False)
 
 
 # ------------------------------------------------------------------ model
@@ -165,6 +173,17 @@ class RepoFilter(QSortFilterProxyModel):
         self.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.setFilterKeyColumn(-1)
         self.setSortRole(ROLE_SORT)
+
+    def lessThan(self, left, right):
+        # Compare in Python: Qt turns ints above 2**31 into a different variant type and its
+        # cross-type ordering is not consistent, which scrambled the size columns.
+        a, b = left.data(ROLE_SORT), right.data(ROLE_SORT)
+        if a is None or b is None:
+            return a is None and b is not None
+        try:
+            return a < b
+        except TypeError:
+            return str(a) < str(b)
 
     def filterAcceptsRow(self, row, parent):
         item = self.sourceModel().item(row, C_DOT)
